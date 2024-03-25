@@ -1,0 +1,90 @@
+import torch
+print('CUDA版本:',torch.version.cuda)
+print('Pytorch版本:',torch.__version__)
+print('显卡是否可用:','可用' if(torch.cuda.is_available()) else '不可用')
+print('显卡数量:',torch.cuda.device_count())
+print('是否支持BF16数字格式:','支持' if (torch.cuda.is_bf16_supported()) else '不支持')
+print('当前显卡型号:',torch.cuda.get_device_name())
+print('当前显卡的CUDA算力:',torch.cuda.get_device_capability())
+print('当前显卡的总显存:',torch.cuda.get_device_properties(0).total_memory/1024/1024/1024,'GB')
+print('是否支持TensorCore:','支持' if (torch.cuda.get_device_properties(0).major >= 7) else '不支持')
+print('当前显卡的显存使用率:',torch.cuda.memory_allocated(0)/torch.cuda.get_device_properties(0).total_memory*100,'%')
+
+mmdetection
+
+测试现有模型
+# 单 GPU 测试
+python tools/test.py \
+    ${CONFIG_FILE} \
+    ${CHECKPOINT_FILE} \
+    [--out ${RESULT_FILE}] \
+    [--show]
+
+例如：
+python tools/test.py \
+    configs/rtmdet/rtmdet_l_8xb32-300e_coco.py \
+    checkpoints/rtmdet_l_8xb32-300e_coco_20220719_112030-5a0be7c4.pth \
+    --show-dir rtmdet_l_8xb32-300e_coco_results
+
+# CPU 测试：禁用 GPU 并运行单 GPU 测试脚本
+export CUDA_VISIBLE_DEVICES=-1
+python tools/test.py \
+    ${CONFIG_FILE} \
+    ${CHECKPOINT_FILE} \
+    [--out ${RESULT_FILE}] \
+    [--show]
+
+# 单节点多 GPU 测试
+bash tools/dist_test.sh \
+    ${CONFIG_FILE} \
+    ${CHECKPOINT_FILE} \
+    ${GPU_NUM} \
+    [--out ${RESULT_FILE}]
+
+rtmdet_x_8xb32-300e_coco_20220715_230555-cc79b9ae.pth
+例如：
+./tools/dist_test.sh \
+     configs/rtmdet/rtmdet_l_8xb32-300e_coco.py \
+     checkpoints/rtmdet_l_8xb32-300e_coco_20220719_112030-5a0be7c4.pth \
+     2
+
+./tools/dist_test.sh \
+    configs/mask_rcnn/mask-rcnn_r50_fpn_1x_coco.py \
+    checkpoints/mask_rcnn_r50_fpn_1x_coco_20200205-d4b0c5d6.pth \
+    8
+    
+# 在MMYolo使用多个显卡进行训练的两种方法
+1.通过命令传入参数调用train.py
+CUDA_VISIBLE_DEVICES=0,1  python -m torch.distributed.launch --nproc_per_node=2 tools/train.py configs/custom_dataset/yolov5_s-v61_syncbn_fast_1xb32-100e_linyi.py --launcher pytorch
+
+2.通过调用dist_train.sh文件，传入配置文件和权重文件的文件名参数，这里不需要传入模型权重，在py文件里有了
+./tools/dist_train.sh \
+    configs/custom_dataset/yolov5_s-v61_syncbn_fast_1xb32-100e_linyi.py \
+    2
+    
+tensorboard --logdir=work_dirs/yolov5_s-v61_syncbn_fast_1xb32-100e_linyi/20231207_093159
+
+划分数据集运行脚本
+python ./data/divide_dataset.py /data2t/dougang/yolov5/DataSet/linyiExpand/images /data2t/dougang/yolov5/DataSet/linyiExpand/labels 0.9 0.1 0
+python ./data/divide_yolo_dataset.py /data2t/dougang/yolov5/DataSet/linyi/images /data2t/dougang/yolov5/DataSet/linyi/labels 0.8 0.1 0.1
+python ./data/divide_yolo_dataset.py /data2t/dougang/yolov8/ultralytics/ultralytics/DataSet/linyiExpand/images /data2t/dougang/yolov8/ultralytics/ultralytics/DataSet/linyiExpand/labels 0.8 0.1 0.1
+
+python /data2t/dougang/Data/divideYoloDataset.py /data2t/dougang/Data/linyiExpand /data2t/dougang/Data/linyiExpand  /data2t/dougang/Data/linyiExpand/811 0.8 0.1 0.1
+
+
+YOLOv8训练
+yolo task=detect mode=train model=weights/yolov8s.pt data=customer_configs/linyi_dataset.yaml batch=64 epochs=100 device=\'0,1\'
+yolo task=detect mode=train model=weights/yolov8s.pt data=customer_configs/linyiExpand_dataset.yaml batch=64 epochs=200 device=\'0,1\'
+验证
+yolo task=detect mode=val model=runs/detect/train3/weights/best.pt data=customer_configs/linyi_dataset.yaml device=\'0,1\'
+测试
+yolo task=detect mode=predict model=runs/detect/train2/weights/best.pt source=DataSet/linyi/images/test device=\'0,1\'
+模型导出
+yolo task=detect mode=export model=runs/detect/train3/weights/best.pt format=onnx
+
+修改yolov8:
+新建复制yolov8s_Attention.yaml文件，修改网络结构（加入attention层）
+导入attention.py文件，并在task.py中引入该文件和修改对应位置代码
+修改train文件，加载yaml配置文件，设置dataset路径、batch、epochs、device的值
+运行python train.py
+
